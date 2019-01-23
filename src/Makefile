@@ -1,6 +1,6 @@
 IDIR =../include
 CC=avr-gcc
-CFLAGS=-I$(IDIR) -mmcu=attiny20 -0s -Wall
+CFLAGS=-I$(IDIR) -mmcu=attiny20 -Os -Wall -g
 
 ODIR=../build
 LDIR =../lib
