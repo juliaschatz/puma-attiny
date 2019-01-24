@@ -98,7 +98,7 @@ int main() {
             }
             SET_LOW(PINA, off_pin)
             // Turn on if timer is below level (longer period for higher duty cycle PWM)
-            if (outer_time < compare_level) {
+            if (2 * outer_time < compare_level) {
                 SET_HIGH(PINA, led_pin)
             }
             else {
