@@ -28,14 +28,10 @@ int main() {
     // Disable pullup resistor (set high-Z)
     SET_LOW(PUEA, PUEA0)
 
-    // Configure output PWM timer (phase correct PWM, output when timer above level)
+    // Configure output PWM timer (phase correct PWM, output high when timer above level)
     SET_LOW(TCCR0B, WGM02)
     SET_LOW(TCCR0B, WGM01)
     SET_HIGH(TCCR0B, WGM00)
-
-    // These stay low all the time
-    SET_LOW(TCCR0A, COM0B0)
-    SET_LOW(TCCR0A, COM0A0)
 
     sei(); // Enable interrupts
 
@@ -98,7 +94,7 @@ int main() {
             }
             SET_LOW(PINA, off_pin)
             // Turn on if timer is below level (longer period for higher duty cycle PWM)
-            if (2 * outer_time < compare_level) {
+            if (2 * outer_time > compare_level) {
                 SET_HIGH(PINA, led_pin)
             }
             else {
@@ -149,19 +145,25 @@ ISR(PCINT0_vect) {
                 // Set LEDs
                 if (_time > DEADZONE_CENTER) {
                     compare_level = (255 * (_time - DEADZONE_HIGH)) / IN_RANGE;
-                    // Set OC0A up
-                    SET_HIGH(TCCR0A, COM0A1)
-                    // Disable 0C0B
-                    SET_LOW(TCCR0A, COM0B1)
+                    // Disable OC0A and set high for brake in off cycle
+                    SET_LOW(TCCR0A, COM0A1)
+                    SET_LOW(TCCR0A, COM0A0)
+                    SET_HIGH(PINB, PINB2)
+                    // Set OC0B on
+                    SET_HIGH(TCCR0A, COM0B1)
+                    SET_HIGH(TCCR0A, COM0B1)
 
                     direction = 1;
                 }
                 else {
                     compare_level = (255 * (DEADZONE_LOW - _time)) / IN_RANGE;
-                    // Disable 0C0A
-                    SET_LOW(TCCR0A, COM0A1)
-                    // Set 0C0B up
-                    SET_HIGH(TCCR0A, COM0B1)
+                    // Set OC0A on
+                    SET_HIGH(TCCR0A, COM0A1)
+                    SET_HIGH(TCCR0A, COM0A0)
+                    // Disable OC0B and set high for brake in off cycle
+                    SET_LOW(TCCR0A, COM0B1)
+                    SET_LOW(TCCR0A, COM0B1)
+                    SET_HIGH(PINA, PINA7)
 
                     direction = -1;
                 }
