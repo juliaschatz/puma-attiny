@@ -10,10 +10,10 @@
  * NSLEEP: PA4 (pull high to turn on driver)
  */
 
-#define SET_HIGH(register, bit) register |= 1 << bit;
-#define SET_LOW(register, bit) register &= ~(1 << bit);
+#define SET_HIGH(register, bit) register |= 1 << bit
+#define SET_LOW(register, bit) register &= ~(1 << bit)
 #define REGISTER_BIT(register, bit) ((register >> bit) & 1)
-#define SET_REGISTER(register, bit, value) register ^= (-value ^ register) & (1 << bit);
+#define SET_REGISTER(register, bit, value) (value ? (SET_HIGH(register, bit)) : (SET_LOW(register, bit)))
 
 // Number of 8.192 ms counts of no signal to wait before disabling output
 #define DEAD_TIME 5
