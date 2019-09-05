@@ -7,16 +7,20 @@
 #include <avr/interrupt.h>
 #include <avr/io.h>
 
-volatile unsigned char compare_level = 0;
+volatile uint16_t compare_level = 0;
 volatile char direction = 0;
-volatile unsigned char outer_time = 0;
+volatile uint8_t sleep_on = 1;
+int led_on = 0;
 int main() {
     // Configure system clock prescaler (0000 is factor of 1 for 8 MHz operation)
     CCP = 0xD8;
     CLKPSR &= 0b0000;
 
+    // Timer 1 setup (Used for counting pulse length)
     // Set timer
-    SET_HIGH(TCCR1A, CS10); // 16 bit timer, prescale of 1
+    TCCR1A = 0;
+    TCCR1B = 0;
+    SET_HIGH(TCCR1B, CS11); // Prescaler of 8
     SET_HIGH(TIMSK, TOIE1); // Enable overflow interrupt (used for keeping longer time)
 
     // Input PWM signal
@@ -28,15 +32,21 @@ int main() {
     // Disable pullup resistor (set high-Z)
     SET_LOW(PUEA, PUEA0);
 
+    // Timer 0 configure
     // Configure output PWM timer (phase correct PWM, output high when timer above level)
-    SET_LOW(TCCR0B, WGM02);
-    SET_LOW(TCCR0B, WGM01);
-    SET_HIGH(TCCR0B, WGM00);
+    SET_HIGH(TCCR0B, WGM02);
+    SET_LOW(TCCR0A, WGM01);
+    SET_HIGH(TCCR0A, WGM00);
+    SET_HIGH(TCCR0B, CS00); // Prescaler of 1
+    SET_HIGH(TCCR0A, COM0A1);
+    SET_HIGH(TCCR0A, COM0A0);
+    SET_HIGH(TCCR0A, COM0B1);
+    SET_HIGH(TCCR0A, COM0B0);
 
     sei(); // Enable interrupts
 
     // Brake/coast jumper
-    // Configure PA1 as internal-pullup logic inputs
+    // Configure PA1 as internal-pullup logic input
     SET_LOW(DDRA, DDA1);
     SET_HIGH(PUEA, PUEA1);
 
@@ -48,7 +58,7 @@ int main() {
     SET_LOW(PUEA, PUEA3);
 
     // IN1, IN2, NSLEEP setup
-    // Configure PA4,7, PB2 as outputs
+    // Configure PA4,7, PB2 as outputs, disable pullups
     SET_HIGH(DDRA, DDA4);
     SET_LOW(PUEA, PUEA4);
     SET_HIGH(DDRA, DDA7);
@@ -57,28 +67,33 @@ int main() {
     SET_LOW(PUEB, PUEB2);
 
     // Default output state
-    SET_LOW(PINA, PINA4); // NSLEEP
-    SET_LOW(PINB, PINB2); // IN1
-    SET_LOW(PINA, PINA7); // IN2
+    SET_HIGH(PORTA, PINA4); // NSLEEP
+    SET_LOW(PORTB, PINB2); // IN1
+    SET_LOW(PORTA, PINA7); // IN2
+    SET_LOW(PORTA, PINA6); // Green LED
+    SET_LOW(PORTA, PINA3); // Red LED
 
-    for (;;) {
-        // If the counter passes the limit, set the sleep
-        if (TCNT1 >= DEAD_TIME) {
-            // Enable sleep
-            SET_LOW(PINA, PINA4);
-        }
+    // Startup flash
+    GREEN_ON;
+    sync_delay_ms(500);
+    RED_ON;
+    sync_delay_ms(250);
+    GREEN_OFF;
+    sync_delay_ms(250);
+    RED_OFF;
 
+    while (1) {
         // Manage LEDs
         // Check if sleep is enabled
-        if (REGISTER_BIT(PINA, PINA4)) {
+        if (sleep_on) {
             // Turn off LEDs
-            SET_LOW(PINA, PINA3);
-            SET_LOW(PINA, PINA6);
+            GREEN_OFF;
+            RED_OFF;
         }
         else if (direction == 0) { // Neutral
             // Turn on both LEDs
-            SET_HIGH(PINA, PINA3);
-            SET_HIGH(PINA, PINA6);
+            GREEN_ON;
+            RED_ON;
         }
         else {
             // Choose the right pin
@@ -92,14 +107,16 @@ int main() {
                 led_pin = PINA3;
                 off_pin = PINA6;
             }
-            SET_LOW(PINA, off_pin);
-            // Turn on if timer is below level (longer period for higher duty cycle PWM)
-            if (2 * outer_time > compare_level) {
-                SET_HIGH(PINA, led_pin);
+            SET_LOW(PORTA, off_pin);
+            if (led_on) {
+                led_on = 0;
+                SET_LOW(PORTA, led_pin);
             }
             else {
-                SET_LOW(PINA, led_pin);
+                led_on = 1;
+                SET_HIGH(PORTA, led_pin);
             }
+            sync_delay_ms(255-compare_level);
         }
     }
 
@@ -110,18 +127,27 @@ int main() {
  * Calculates input pulse length.
  */
 ISR(PCINT0_vect) {
-    char pin_state = REGISTER_BIT(PINA, PINA0);
+    char pin_state = REGISTER_BIT(PINA, PORTA0);
     // Copy to prevent timer changing during calculation
-    unsigned short _time = TCNT1;
+    // Due to (possibly?) opto turnoff time, pulses are measured to be about 30us more than they are
+    unsigned short _time = TCNT1 - TIME_OFFSET;  
     // If pin moving LOW, new pulse beginning
     if (!pin_state) {
         TCNT1 = 0; // Reset timer
+        // TODO sleep never gets reset when recieving an invalid pulse length
     } // If pin moving HIGH, pulse ending
     else {
         // Verify this is a valid signal by making sure it's in the valid length
-        if (_time >= MIN_PULSE_LEN && _time <= MAX_PULSE_LEN) {
+        if (_time >= MIN_PULSE_LEN - FUDGE && _time <= MAX_PULSE_LEN + FUDGE) {
+            if (_time < MIN_PULSE_LEN) {
+                _time = MIN_PULSE_LEN;
+            }
+            if (_time > MAX_PULSE_LEN) {
+                _time = MAX_PULSE_LEN;
+            }
             // Disable sleep
-            SET_HIGH(PINA, PINA4);
+            SLEEP_OFF;
+            sleep_on = 0;
 
             // REVERSE is PWM on IN2 (IN1 low)
             // FWD is PWM on IN1 (IN2 low)
@@ -129,52 +155,68 @@ ISR(PCINT0_vect) {
             // Deadzone/neutral state
             if (_time > DEADZONE_LOW && _time < DEADZONE_HIGH) {
                 // If brake pin is unset, use coast mode
-                char brake = (~REGISTER_BIT(PINA, PINA1)) & 1;
-                SET_REGISTER(PINB, PINB2, brake);
-                SET_REGISTER(PINA, PINA7, brake);
 
-                // Set LEDs both on
-                SET_HIGH(PINA, PINA3);
-                SET_HIGH(PINA, PINA6);
+                // Disable output compare
+                SET_LOW(TCCR0A, COM0A1);
+                SET_LOW(TCCR0A, COM0A0);
+                SET_LOW(TCCR0A, COM0B1);
+                SET_LOW(TCCR0A, COM0B0);
+                // Set high or low for brake/coast
+                char brake = (~REGISTER_BIT(PINA, PORTA1)) & 1;
+                SET_REGISTER(PORTB, PINB2, brake);
+                SET_REGISTER(PORTA, PINA7, brake);
+
                 direction = 0;
             }
             else {
                 // Calculate compare level
                 // Set to both OCR0A and OCR0B
                 // Enable or disable OC0A and OC0B as necessary
-                // Set LEDs
                 if (_time > DEADZONE_CENTER) {
-                    compare_level = (255 * (_time - DEADZONE_HIGH)) / IN_RANGE;
+                    uint32_t temp = (255 * (uint32_t)(_time - DEADZONE_HIGH));
+                    compare_level = temp / IN_RANGE;
                     // Disable OC0A and set high for brake in off cycle
-                    SET_LOW(TCCR0A, COM0A1);
-                    SET_LOW(TCCR0A, COM0A0);
-                    SET_HIGH(PINB, PINB2);
+                    //SET_LOW(TCCR0A, COM0A1);
+                    //SET_LOW(TCCR0A, COM0A0);
+                    //SET_HIGH(PORTB, PINB2);
                     // Set OC0B on
                     SET_HIGH(TCCR0A, COM0B1);
-                    SET_HIGH(TCCR0A, COM0B1);
+                    SET_HIGH(TCCR0A, COM0B0);
 
                     direction = 1;
                 }
                 else {
-                    compare_level = (255 * (DEADZONE_LOW - _time)) / IN_RANGE;
+                    uint32_t temp = (255 * (uint32_t)(DEADZONE_LOW - _time));
+                    compare_level = temp / IN_RANGE;
                     // Set OC0A on
                     SET_HIGH(TCCR0A, COM0A1);
                     SET_HIGH(TCCR0A, COM0A0);
                     // Disable OC0B and set high for brake in off cycle
-                    SET_LOW(TCCR0A, COM0B1);
-                    SET_LOW(TCCR0A, COM0B1);
-                    SET_HIGH(PINA, PINA7);
+                    //SET_LOW(TCCR0A, COM0B1);
+                    //SET_LOW(TCCR0A, COM0B0);
+                    //SET_HIGH(PORTA, PINA7);
 
                     direction = -1;
                 }
-                OCR0A = compare_level;
-                OCR0B = compare_level;
+                OCR0A = 127;
+                OCR0B = 127;
             }
+        }
+        else {
+            SLEEP_ON; // Disable output because this pulse is too long or too short
         }
     }
 
 }
 
 ISR(TIM1_OVF_vect) {
-    outer_time++;
+    // Overflows happen every ~65 ms
+    sleep_on = 1;
+    SLEEP_ON; 
+}
+
+void sync_delay_ms(uint16_t ms) {
+    for (uint16_t i = 0; i < ms; ++i) {
+        __builtin_avr_delay_cycles (8000);
+    }
 }

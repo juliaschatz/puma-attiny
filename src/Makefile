@@ -28,7 +28,7 @@ hex:
 	avr-objcopy -j .text -j .data -O ihex $(ELF_FILE) $(HEX_FILE)
 
 flash:
-	avrdude -p attiny20 -c avrftdi -U flash:w:$(ELF_FILE)
+	avrdude -p attiny20 -c usbasp -U flash:w:$(ELF_FILE) -vvv
 
 .PHONY: clean build flash hex
 
