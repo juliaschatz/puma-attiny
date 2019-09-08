@@ -34,14 +34,8 @@ int main() {
 
     // Timer 0 configure
     // Configure output PWM timer (phase correct PWM, output high when timer above level)
-    SET_HIGH(TCCR0B, WGM02);
-    SET_LOW(TCCR0A, WGM01);
-    SET_HIGH(TCCR0A, WGM00);
     SET_HIGH(TCCR0B, CS00); // Prescaler of 1
-    SET_HIGH(TCCR0A, COM0A1);
-    SET_HIGH(TCCR0A, COM0A0);
-    SET_HIGH(TCCR0A, COM0B1);
-    SET_HIGH(TCCR0A, COM0B0);
+    SET_HIGH(TCCR0A, WGM00); // Phase correct PWM, 255 is top
 
     sei(); // Enable interrupts
 
@@ -134,7 +128,6 @@ ISR(PCINT0_vect) {
     // If pin moving LOW, new pulse beginning
     if (!pin_state) {
         TCNT1 = 0; // Reset timer
-        // TODO sleep never gets reset when recieving an invalid pulse length
     } // If pin moving HIGH, pulse ending
     else {
         // Verify this is a valid signal by making sure it's in the valid length
@@ -157,10 +150,8 @@ ISR(PCINT0_vect) {
                 // If brake pin is unset, use coast mode
 
                 // Disable output compare
-                SET_LOW(TCCR0A, COM0A1);
-                SET_LOW(TCCR0A, COM0A0);
-                SET_LOW(TCCR0A, COM0B1);
-                SET_LOW(TCCR0A, COM0B0);
+                OC0A_OFF;
+                OC0A_ON;
                 // Set high or low for brake/coast
                 char brake = (~REGISTER_BIT(PINA, PORTA1)) & 1;
                 SET_REGISTER(PORTB, PINB2, brake);
@@ -176,12 +167,10 @@ ISR(PCINT0_vect) {
                     uint32_t temp = (255 * (uint32_t)(_time - DEADZONE_HIGH));
                     compare_level = temp / IN_RANGE;
                     // Disable OC0A and set high for brake in off cycle
-                    //SET_LOW(TCCR0A, COM0A1);
-                    //SET_LOW(TCCR0A, COM0A0);
-                    //SET_HIGH(PORTB, PINB2);
+                    OC0A_OFF;
+                    SET_HIGH(PORTB, PINB2);
                     // Set OC0B on
-                    SET_HIGH(TCCR0A, COM0B1);
-                    SET_HIGH(TCCR0A, COM0B0);
+                    OC0A_ON;
 
                     direction = 1;
                 }
@@ -189,17 +178,15 @@ ISR(PCINT0_vect) {
                     uint32_t temp = (255 * (uint32_t)(DEADZONE_LOW - _time));
                     compare_level = temp / IN_RANGE;
                     // Set OC0A on
-                    SET_HIGH(TCCR0A, COM0A1);
-                    SET_HIGH(TCCR0A, COM0A0);
+                    OC0A_ON;
                     // Disable OC0B and set high for brake in off cycle
-                    //SET_LOW(TCCR0A, COM0B1);
-                    //SET_LOW(TCCR0A, COM0B0);
-                    //SET_HIGH(PORTA, PINA7);
+                    OC0B_OFF;
+                    SET_HIGH(PORTA, PINA7);
 
                     direction = -1;
                 }
-                OCR0A = 127;
-                OCR0B = 127;
+                OCR0A = compare_level;
+                OCR0B = compare_level;
             }
         }
         else {
