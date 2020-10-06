@@ -61,7 +61,7 @@ int main() {
     SET_LOW(PUEB, PUEB2);
 
     // Default output state
-    SET_HIGH(PORTA, PINA4); // NSLEEP
+    SET_LOW(PORTA, PINA4); // NSLEEP
     SET_LOW(PORTB, PINB2); // IN1
     SET_LOW(PORTA, PINA7); // IN2
     SET_LOW(PORTA, PINA6); // Green LED
@@ -126,7 +126,7 @@ ISR(PCINT0_vect) {
     // Due to (possibly?) opto turnoff time, pulses are measured to be about 30us more than they are
     unsigned short _time = TCNT1 - TIME_OFFSET;  
     // If pin moving LOW, new pulse beginning
-    if (!pin_state) {
+    if (pin_state) {
         TCNT1 = 0; // Reset timer
     } // If pin moving HIGH, pulse ending
     else {
@@ -139,7 +139,7 @@ ISR(PCINT0_vect) {
                 _time = MAX_PULSE_LEN;
             }
             // Disable sleep
-            SLEEP_OFF;
+            //SLEEP_OFF;
             sleep_on = 0;
 
             // REVERSE is PWM on IN2 (IN1 low)
@@ -151,7 +151,7 @@ ISR(PCINT0_vect) {
 
                 // Disable output compare
                 OC0A_OFF;
-                OC0A_ON;
+                OC0B_OFF;
                 // Set high or low for brake/coast
                 char brake = (~REGISTER_BIT(PINA, PORTA1)) & 1;
                 SET_REGISTER(PORTB, PINB2, brake);
@@ -168,9 +168,9 @@ ISR(PCINT0_vect) {
                     compare_level = temp / IN_RANGE;
                     // Disable OC0A and set high for brake in off cycle
                     OC0A_OFF;
-                    SET_HIGH(PORTB, PINB2);
+                    SET_LOW(PORTB, PINB2);
                     // Set OC0B on
-                    OC0A_ON;
+                    OC0B_ON;
 
                     direction = 1;
                 }
@@ -181,7 +181,7 @@ ISR(PCINT0_vect) {
                     OC0A_ON;
                     // Disable OC0B and set high for brake in off cycle
                     OC0B_OFF;
-                    SET_HIGH(PORTA, PINA7);
+                    SET_LOW(PORTA, PINA7);
 
                     direction = -1;
                 }
@@ -190,7 +190,7 @@ ISR(PCINT0_vect) {
             }
         }
         else {
-            SLEEP_ON; // Disable output because this pulse is too long or too short
+            //SLEEP_ON; // Disable output because this pulse is too long or too short
         }
     }
 
@@ -199,7 +199,7 @@ ISR(PCINT0_vect) {
 ISR(TIM1_OVF_vect) {
     // Overflows happen every ~65 ms
     sleep_on = 1;
-    SLEEP_ON; 
+    //SLEEP_ON; 
 }
 
 void sync_delay_ms(uint16_t ms) {
